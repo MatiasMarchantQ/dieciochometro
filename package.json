@@ -1,12 +1,8 @@
 {
-  "name": "dieciochometro-server",
+  "name": "dieciochometro",
   "version": "1.0.0",
-  "type": "module",
   "private": true,
-  "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
-  },
+  "type": "module",
   "dependencies": {
     "@libsql/client": "^0.17.4",
     "bcryptjs": "^2.4.3",

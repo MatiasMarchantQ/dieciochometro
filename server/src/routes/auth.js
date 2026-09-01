@@ -15,7 +15,7 @@ function publicUser(row) {
     };
 }
 
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
     const username = String(req.body.username || '').trim();
     const displayName = String(req.body.displayName || '').trim();
     const password = String(req.body.password || '');
@@ -30,32 +30,35 @@ router.post('/register', (req, res) => {
         return res.status(422).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
     }
 
-    const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-    if (exists) {
+    const exists = await db.execute({ sql: 'SELECT id FROM users WHERE username = ?', args: [username] });
+    if (exists.rows.length > 0) {
         return res.status(409).json({ error: 'Ese usuario ya existe, elige otro.' });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const insertUser = db.prepare(
-        'INSERT INTO users (username, display_name, password_hash, theme) VALUES (?, ?, ?, ?)'
-    );
-    const { lastInsertRowid: userId } = insertUser.run(username, displayName, passwordHash, DEFAULT_THEME);
+    const insertUser = await db.execute({
+        sql: 'INSERT INTO users (username, display_name, password_hash, theme) VALUES (?, ?, ?, ?)',
+        args: [username, displayName, passwordHash, DEFAULT_THEME],
+    });
+    const userId = Number(insertUser.lastInsertRowid);
 
-    const insertItem = db.prepare(
-        'INSERT INTO items (user_id, emoji, name, count, sort_order) VALUES (?, ?, ?, 0, ?)'
-    );
-    DEFAULT_ITEMS.forEach((item, order) => insertItem.run(userId, item.emoji, item.name, order));
+    const itemStatements = DEFAULT_ITEMS.map((item, order) => ({
+        sql: 'INSERT INTO items (user_id, emoji, name, count, sort_order) VALUES (?, ?, ?, 0, ?)',
+        args: [userId, item.emoji, item.name, order],
+    }));
+    await db.batch(itemStatements, 'write');
 
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    const { rows } = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [userId] });
     issueSession(res, userId);
-    res.status(201).json(publicUser(user));
+    res.status(201).json(publicUser(rows[0]));
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
 
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    const { rows } = await db.execute({ sql: 'SELECT * FROM users WHERE username = ?', args: [username] });
+    const user = rows[0];
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
         return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
     }
@@ -69,10 +72,10 @@ router.post('/logout', (req, res) => {
     res.json({ ok: true });
 });
 
-router.get('/me', requireAuth, (req, res) => {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
-    if (!user) return res.status(401).json({ error: 'No autenticado' });
-    res.json(publicUser(user));
+router.get('/me', requireAuth, async (req, res) => {
+    const { rows } = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [req.userId] });
+    if (!rows[0]) return res.status(401).json({ error: 'No autenticado' });
+    res.json(publicUser(rows[0]));
 });
 
 export default router;

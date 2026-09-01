@@ -1,24 +1,15 @@
-import 'dotenv/config';
 import express from 'express';
-import cookieParser from 'cookie-parser';
-import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import authRoutes from './routes/auth.js';
-import itemsRoutes from './routes/items.js';
+import app from './app.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
 const PORT = process.env.PORT || 3001;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
-app.use(express.json());
-app.use(cookieParser());
-
-app.use('/api/auth', authRoutes);
-app.use('/api/items', itemsRoutes);
-
+// Static file serving + SPA fallback: only needed when running as a
+// traditional standalone server (local dev, Railway, Render, etc).
+// On Vercel the platform serves client/dist directly, so api/index.js
+// exports the bare app from app.js without this.
 const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
 app.use(express.static(clientDist));
 app.get(/^(?!\/api).*/, (req, res) => {
