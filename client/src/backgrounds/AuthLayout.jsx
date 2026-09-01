@@ -1,4 +1,5 @@
 import GlassPhotoPanel from './GlassPhotoPanel.jsx';
+import Credit from '../components/Credit.jsx';
 import ModePicker from '../theme/ModePicker.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
 
@@ -12,7 +13,7 @@ export default function AuthLayout({ children }) {
                 <GlassPhotoPanel />
             </div>
 
-            <div className="w-full md:w-1/2 lg:w-2/5 flex items-center justify-center p-5">
+            <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col items-center justify-center gap-3 p-5">
                 <div
                     className="w-full max-w-sm nb-border nb-shadow rounded-2xl p-8"
                     style={{
@@ -24,6 +25,9 @@ export default function AuthLayout({ children }) {
                     }}
                 >
                     {children}
+                </div>
+                <div className="w-full max-w-sm">
+                    <Credit color={auth.textMuted} />
                 </div>
             </div>
 

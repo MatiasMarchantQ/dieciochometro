@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 export default function ShareBar({ items, theme }) {
     const canvasRef = useRef(null);
     const [includeZeros, setIncludeZeros] = useState(false);
+    const [includeCredit, setIncludeCredit] = useState(true);
 
     async function drawImage() {
         const canvas = canvasRef.current;
@@ -59,6 +60,12 @@ export default function ShareBar({ items, theme }) {
         ctx.fillStyle = '#57534e';
         ctx.fillText(`Hecho con ${theme.appName}`, W / 2, H - 100);
 
+        if (includeCredit) {
+            ctx.font = '600 26px "Inter"';
+            ctx.fillStyle = '#9a948c';
+            ctx.fillText('by Matías Marchant', W / 2, H - 60);
+        }
+
         return list;
     }
 
@@ -95,9 +102,13 @@ export default function ShareBar({ items, theme }) {
 
     return (
         <div className="nb-border nb-shadow rounded-xl p-5 text-center" style={{ background: 'var(--surface)' }}>
-            <label className="flex items-center justify-center gap-2 text-sm font-semibold mb-4">
+            <label className="flex items-center justify-center gap-2 text-sm font-semibold mb-2">
                 <input type="checkbox" checked={includeZeros} onChange={(e) => setIncludeZeros(e.target.checked)} />
                 Incluir items en cero al compartir
+            </label>
+            <label className="flex items-center justify-center gap-2 text-sm font-semibold mb-4">
+                <input type="checkbox" checked={includeCredit} onChange={(e) => setIncludeCredit(e.target.checked)} />
+                Incluir firma "by Matías Marchant"
             </label>
             <button
                 onClick={share}

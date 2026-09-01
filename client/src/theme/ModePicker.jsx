@@ -1,9 +1,11 @@
 import { motion } from 'framer-motion';
 
-export default function ModePicker({ mode, setMode, isSeasonal, theme }) {
+export default function ModePicker({ mode, setMode, isSeasonal, theme, inline = false }) {
+    const position = inline ? 'relative' : 'fixed top-4 right-4 z-20';
+
     if (isSeasonal) {
         return (
-            <div className="fixed top-4 right-4 z-20 px-3 py-2 rounded-full text-sm font-semibold backdrop-blur bg-black/40 text-white">
+            <div className={`${position} px-3 py-2 rounded-full text-sm font-semibold backdrop-blur bg-black/40 text-white`}>
                 {theme.emoji} {theme.label}
             </div>
         );
@@ -17,7 +19,7 @@ export default function ModePicker({ mode, setMode, isSeasonal, theme }) {
             aria-checked={isDark}
             aria-label="Cambiar modo claro/oscuro"
             onClick={() => setMode(isDark ? 'blanco' : 'oscuro')}
-            className="fixed top-4 right-4 z-20 w-16 h-9 rounded-full flex items-center px-1 shadow-md transition-colors"
+            className={`${position} w-16 h-9 rounded-full flex items-center px-1 shadow-md transition-colors shrink-0`}
             style={{ background: isDark ? '#27272a' : '#d4d4d8' }}
         >
             <motion.span

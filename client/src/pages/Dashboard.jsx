@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import ItemCard from '../components/ItemCard.jsx';
 import AddItemModal from '../components/AddItemModal.jsx';
 import ShareBar from '../components/ShareBar.jsx';
+import Credit from '../components/Credit.jsx';
 import ModePicker from '../theme/ModePicker.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
 
@@ -71,13 +72,16 @@ export default function Dashboard() {
                             Hola, {user.displayName}
                         </p>
                     </div>
-                    <button
-                        onClick={logout}
-                        className="px-3 py-2 nb-border nb-shadow rounded-lg text-xs font-black uppercase transition active:translate-x-[4px] active:translate-y-[4px] active:shadow-none"
-                        style={{ background: 'var(--surface)' }}
-                    >
-                        Salir
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={logout}
+                            className="px-3 py-2 nb-border nb-shadow rounded-lg text-xs font-black uppercase transition active:translate-x-[4px] active:translate-y-[4px] active:shadow-none shrink-0"
+                            style={{ background: 'var(--surface)' }}
+                        >
+                            Salir
+                        </button>
+                        <ModePicker mode={mode} setMode={setMode} isSeasonal={isSeasonal} theme={theme} inline />
+                    </div>
                 </div>
             </header>
 
@@ -99,10 +103,11 @@ export default function Dashboard() {
                 </button>
 
                 <ShareBar items={items} theme={theme} />
+
+                <Credit color={d.textMuted} />
             </main>
 
             {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />}
-            <ModePicker mode={mode} setMode={setMode} isSeasonal={isSeasonal} theme={theme} />
         </div>
     );
 }
