@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --radius: 14px;
+    --bg-app: #fdf6e8;
+    --surface: #ffffff;
+    --surface-border: #111111;
+    --text: #111111;
+    --text-muted: #57534e;
+    --primary: #0039a6;
+    --primary-contrast: #ffffff;
+    --accent: #d52b1e;
+}
+
+body {
+    background: var(--bg-app);
+    color: var(--text);
+    font-family: var(--font-body);
+}
+
+.font-display {
+    font-family: var(--font-display);
+}
+
+.nb-border {
+    border: 3px solid var(--surface-border);
+}
+
+.nb-shadow {
+    box-shadow: 5px 5px 0px var(--surface-border);
+}
+
