@@ -35,13 +35,14 @@ export default function AddItemModal({ onClose, onAdd }) {
                             {e}
                         </button>
                     ))}
-                    <input
-                        className="w-9 h-9 rounded-lg text-lg nb-border text-center"
-                        maxLength={4}
-                        value={emoji}
-                        onChange={(e) => setEmoji(e.target.value)}
-                    />
                 </div>
+                <input
+                    className="w-full rounded-lg px-3 py-2 nb-border text-center text-lg"
+                    maxLength={16}
+                    placeholder="O escribe cualquier emoji 😋"
+                    value={emoji}
+                    onChange={(e) => setEmoji(e.target.value)}
+                />
 
                 <label className="text-xs font-black uppercase">Nombre</label>
                 <input

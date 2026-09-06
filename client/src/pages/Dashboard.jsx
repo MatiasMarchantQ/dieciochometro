@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useAuth } from '../AuthContext.jsx';
 import { api } from '../api.js';
@@ -8,6 +9,7 @@ import ShareBar from '../components/ShareBar.jsx';
 import Credit from '../components/Credit.jsx';
 import ModePicker from '../theme/ModePicker.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
+import { toLocalDateString } from '../dateUtils.js';
 
 export default function Dashboard() {
     const { user, logout } = useAuth();
@@ -23,7 +25,7 @@ export default function Dashboard() {
     async function handleChange(id, delta) {
         setItems((prev) => prev.map((i) => (i.id === id ? { ...i, count: Math.max(0, i.count + delta) } : i)));
         try {
-            const result = await api.updateItem(id, delta);
+            const result = await api.updateItem(id, delta, toLocalDateString());
             setItems((prev) => prev.map((i) => (i.id === id ? { ...i, count: result.count } : i)));
         } catch {
             api.listItems().then(setItems).catch(() => {});
@@ -73,6 +75,13 @@ export default function Dashboard() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <Link
+                            to="/calendar"
+                            className="px-3 py-2 nb-border nb-shadow rounded-lg text-xs font-black uppercase transition active:translate-x-[4px] active:translate-y-[4px] active:shadow-none shrink-0"
+                            style={{ background: 'var(--surface)' }}
+                        >
+                            📅
+                        </Link>
                         <button
                             onClick={logout}
                             className="px-3 py-2 nb-border nb-shadow rounded-lg text-xs font-black uppercase transition active:translate-x-[4px] active:translate-y-[4px] active:shadow-none shrink-0"

@@ -15,6 +15,16 @@ function publicUser(row) {
     };
 }
 
+router.post('/check', async (req, res) => {
+    const username = String(req.body.username || '').trim();
+    if (!username) {
+        return res.status(422).json({ error: 'Ingresa un usuario.' });
+    }
+
+    const { rows } = await db.execute({ sql: 'SELECT id FROM users WHERE username = ?', args: [username] });
+    res.json({ exists: rows.length > 0 });
+});
+
 router.post('/register', async (req, res) => {
     const username = String(req.body.username || '').trim();
     const displayName = String(req.body.displayName || '').trim();

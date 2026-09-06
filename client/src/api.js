@@ -14,12 +14,14 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+    checkUsername: (username) => request('/auth/check', { method: 'POST', body: JSON.stringify({ username }) }),
     register: (payload) => request('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
     login: (payload) => request('/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
     logout: () => request('/auth/logout', { method: 'POST' }),
     me: () => request('/auth/me'),
     listItems: () => request('/items'),
     addItem: (payload) => request('/items', { method: 'POST', body: JSON.stringify(payload) }),
-    updateItem: (id, delta) => request(`/items/${id}`, { method: 'PATCH', body: JSON.stringify({ delta }) }),
+    updateItem: (id, delta, date) => request(`/items/${id}`, { method: 'PATCH', body: JSON.stringify({ delta, date }) }),
     deleteItem: (id) => request(`/items/${id}`, { method: 'DELETE' }),
+    getHistory: () => request('/items/history'),
 };

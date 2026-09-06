@@ -31,6 +31,16 @@ await db.batch(
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )`,
+        `CREATE TABLE IF NOT EXISTS item_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+            emoji TEXT NOT NULL,
+            name TEXT NOT NULL,
+            delta INTEGER NOT NULL,
+            occurred_on TEXT NOT NULL DEFAULT (date('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
     ],
     'write'
 );

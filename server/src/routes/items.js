@@ -38,24 +38,51 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
     const id = Number(req.params.id);
     const delta = Number(req.body.delta || 0);
+    const occurredOn = String(req.body.date || '').trim();
 
     if (!id || !delta) {
         return res.status(422).json({ error: 'Datos inválidos' });
     }
 
-    await db.execute({
-        sql: 'UPDATE items SET count = MAX(0, count + ?) WHERE id = ? AND user_id = ?',
-        args: [delta, id, req.userId],
-    });
-
-    const { rows } = await db.execute({
-        sql: 'SELECT count FROM items WHERE id = ? AND user_id = ?',
+    const { rows: itemRows } = await db.execute({
+        sql: 'SELECT emoji, name, count FROM items WHERE id = ? AND user_id = ?',
         args: [id, req.userId],
     });
-    if (!rows[0]) {
+    const item = itemRows[0];
+    if (!item) {
         return res.status(404).json({ error: 'Item no encontrado' });
     }
-    res.json({ id, count: rows[0].count });
+
+    const newCount = Math.max(0, item.count + delta);
+    const appliedDelta = newCount - item.count;
+
+    await db.execute({
+        sql: 'UPDATE items SET count = ? WHERE id = ? AND user_id = ?',
+        args: [newCount, id, req.userId],
+    });
+
+    if (appliedDelta !== 0) {
+        await db.execute({
+            sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
+                  VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
+            args: [req.userId, id, item.emoji, item.name, appliedDelta, occurredOn],
+        });
+    }
+
+    res.json({ id, count: newCount });
+});
+
+router.get('/history', async (req, res) => {
+    const { rows } = await db.execute({
+        sql: `SELECT occurred_on, emoji, name, SUM(delta) AS total
+              FROM item_logs
+              WHERE user_id = ?
+              GROUP BY occurred_on, emoji, name
+              HAVING SUM(delta) > 0
+              ORDER BY occurred_on DESC, total DESC`,
+        args: [req.userId],
+    });
+    res.json(rows);
 });
 
 router.delete('/:id', async (req, res) => {
