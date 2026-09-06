@@ -27,14 +27,10 @@ router.post('/check', async (req, res) => {
 
 router.post('/register', async (req, res) => {
     const username = String(req.body.username || '').trim();
-    const displayName = String(req.body.displayName || '').trim();
     const password = String(req.body.password || '');
 
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
         return res.status(422).json({ error: 'El usuario debe tener 3 a 20 caracteres: letras, números o guión bajo.' });
-    }
-    if (!displayName) {
-        return res.status(422).json({ error: 'Ingresa tu nombre.' });
     }
     if (password.length < 6) {
         return res.status(422).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
@@ -48,7 +44,7 @@ router.post('/register', async (req, res) => {
     const passwordHash = bcrypt.hashSync(password, 10);
     const insertUser = await db.execute({
         sql: 'INSERT INTO users (username, display_name, password_hash, theme) VALUES (?, ?, ?, ?)',
-        args: [username, displayName, passwordHash, DEFAULT_THEME],
+        args: [username, username, passwordHash, DEFAULT_THEME],
     });
     const userId = Number(insertUser.lastInsertRowid);
 

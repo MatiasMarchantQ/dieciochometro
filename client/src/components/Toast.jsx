@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function dismissDelay(count) {
-    return Math.min(4000 + count * 1500, 9000);
+    return Math.min(3500 + count * 1200, 7000);
 }
 
 export default function Toast({ messages, onClose }) {
@@ -16,10 +16,10 @@ export default function Toast({ messages, onClose }) {
         <AnimatePresence>
             {messages.length > 0 && (
                 <motion.div
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 16 }}
-                    className="fixed bottom-4 left-4 right-4 z-30 mx-auto max-w-sm nb-border nb-shadow rounded-xl p-4 flex flex-col gap-2"
+                    initial={{ opacity: 0, y: -8, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -8, height: 0 }}
+                    className="relative w-full nb-border nb-shadow rounded-xl p-4 flex flex-col gap-2 overflow-hidden"
                     style={{ background: 'var(--surface)', color: 'var(--text)' }}
                 >
                     <button

@@ -11,7 +11,6 @@ export default function Login() {
     const navigate = useNavigate();
     const [step, setStep] = useState('username'); // 'username' | 'login' | 'register'
     const [username, setUsername] = useState('');
-    const [displayName, setDisplayName] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -19,7 +18,6 @@ export default function Login() {
     function backToUsername() {
         setStep('username');
         setPassword('');
-        setDisplayName('');
         setError('');
     }
 
@@ -56,7 +54,7 @@ export default function Login() {
         setError('');
         setBusy(true);
         try {
-            await register({ username, displayName, password });
+            await register({ username, password });
             navigate('/');
         } catch (err) {
             setError(err.message);
@@ -111,21 +109,6 @@ export default function Login() {
                         </button>
                     </p>
 
-                    {step === 'register' && (
-                        <>
-                            <label className="text-xs font-black uppercase" style={{ color: 'var(--auth-text)' }}>
-                                Nombre
-                            </label>
-                            <input
-                                className="nb-border rounded-lg px-3 py-2 font-semibold"
-                                value={displayName}
-                                onChange={(e) => setDisplayName(e.target.value)}
-                                required
-                                autoFocus
-                            />
-                        </>
-                    )}
-
                     <label className="text-xs font-black uppercase" style={{ color: 'var(--auth-text)' }}>
                         Contraseña
                     </label>
@@ -136,7 +119,7 @@ export default function Login() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
-                        autoFocus={step === 'login'}
+                        autoFocus
                     />
 
                     <button
