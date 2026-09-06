@@ -85,6 +85,70 @@ router.get('/history', async (req, res) => {
     res.json(rows);
 });
 
+router.get('/pace', async (req, res) => {
+    const date = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(422).json({ error: 'Fecha inválida' });
+    }
+
+    const { rows } = await db.execute({
+        sql: `SELECT emoji, name, SUM(delta) AS total, MIN(created_at) AS first_at
+              FROM item_logs
+              WHERE user_id = ? AND occurred_on = ?
+              GROUP BY emoji, name
+              HAVING SUM(delta) > 0`,
+        args: [req.userId, date],
+    });
+
+    const totalToday = rows.reduce((sum, r) => sum + r.total, 0);
+    const earliest = rows.reduce((min, r) => (!min || r.first_at < min ? r.first_at : min), null);
+    const top = rows.reduce((max, r) => (!max || r.total > max.total ? r : max), null);
+
+    res.json({
+        totalToday,
+        earliest: earliest ? earliest.replace(' ', 'T') + 'Z' : null,
+        top: top ? { emoji: top.emoji, name: top.name, total: top.total } : null,
+    });
+});
+
+router.post('/history/move', async (req, res) => {
+    const emoji = String(req.body.emoji || '').trim();
+    const name = String(req.body.name || '').trim();
+    const fromDate = String(req.body.fromDate || '').trim();
+    const toDate = String(req.body.toDate || '').trim();
+    const quantity = Math.trunc(Number(req.body.quantity || 0));
+
+    if (!emoji || !name || !fromDate || !toDate || fromDate === toDate || quantity <= 0) {
+        return res.status(422).json({ error: 'Datos inválidos' });
+    }
+
+    const { rows } = await db.execute({
+        sql: `SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs
+              WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?`,
+        args: [req.userId, emoji, name, fromDate],
+    });
+    const available = rows[0].total;
+    if (quantity > available) {
+        return res.status(422).json({ error: `Solo tienes ${available} registrado ese día.` });
+    }
+
+    await db.batch(
+        [
+            {
+                sql: 'INSERT INTO item_logs (user_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?)',
+                args: [req.userId, emoji, name, -quantity, fromDate],
+            },
+            {
+                sql: 'INSERT INTO item_logs (user_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?)',
+                args: [req.userId, emoji, name, quantity, toDate],
+            },
+        ],
+        'write'
+    );
+
+    res.json({ ok: true });
+});
+
 router.delete('/:id', async (req, res) => {
     const id = Number(req.params.id);
     await db.execute({ sql: 'DELETE FROM items WHERE id = ? AND user_id = ?', args: [id, req.userId] });

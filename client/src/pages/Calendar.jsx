@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useTheme } from '../theme/ThemeContext.jsx';
-import { toLocalDateString } from '../dateUtils.js';
+import { toLocalDateString, addDays } from '../dateUtils.js';
 
 const WEEKDAYS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
@@ -22,10 +22,45 @@ export default function Calendar() {
     const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
     const [history, setHistory] = useState([]);
     const [selectedDay, setSelectedDay] = useState(toLocalDateString(today));
+    const [editingKey, setEditingKey] = useState(null);
+    const [moveQty, setMoveQty] = useState(1);
+    const [moveDate, setMoveDate] = useState('');
+    const [moveError, setMoveError] = useState('');
+    const [moving, setMoving] = useState(false);
 
     useEffect(() => {
         api.getHistory().then(setHistory).catch(() => {});
     }, []);
+
+    function startEdit(row) {
+        setEditingKey(`${row.emoji}|${row.name}`);
+        setMoveQty(row.total);
+        setMoveDate(addDays(selectedDay, -1));
+        setMoveError('');
+    }
+
+    function cancelEdit() {
+        setEditingKey(null);
+        setMoveError('');
+    }
+
+    async function confirmMove(row) {
+        setMoveError('');
+        if (!moveDate || moveDate === selectedDay) {
+            setMoveError('Elige una fecha distinta al día actual.');
+            return;
+        }
+        setMoving(true);
+        try {
+            await api.moveHistory({ emoji: row.emoji, name: row.name, fromDate: selectedDay, toDate: moveDate, quantity: moveQty });
+            setHistory(await api.getHistory());
+            setEditingKey(null);
+        } catch (err) {
+            setMoveError(err.message);
+        } finally {
+            setMoving(false);
+        }
+    }
 
     const byDay = useMemo(() => {
         const map = new Map();
@@ -151,14 +186,79 @@ export default function Calendar() {
                         </p>
                     ) : (
                         <ul className="flex flex-col gap-2">
-                            {selectedRows.map((row) => (
-                                <li key={`${row.emoji}-${row.name}`} className="flex items-center justify-between text-sm font-semibold">
-                                    <span>
-                                        {row.emoji} {row.name}
-                                    </span>
-                                    <span className="font-black">{row.total}</span>
-                                </li>
-                            ))}
+                            {selectedRows.map((row) => {
+                                const key = `${row.emoji}|${row.name}`;
+                                const isEditing = editingKey === key;
+                                return (
+                                    <li key={key} className="flex flex-col gap-2">
+                                        <div className="flex items-center justify-between text-sm font-semibold">
+                                            <span>
+                                                {row.emoji} {row.name}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-black">{row.total}</span>
+                                                <button
+                                                    onClick={() => (isEditing ? cancelEdit() : startEdit(row))}
+                                                    title="¿Fue en otro día?"
+                                                    className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs"
+                                                    style={{ background: 'var(--bg-app)' }}
+                                                >
+                                                    ✏️
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {isEditing && (
+                                            <div className="nb-border rounded-lg p-3 flex flex-col gap-2" style={{ background: 'var(--bg-app)' }}>
+                                                <p className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                                                    Mover a otro día (tu total no cambia)
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={row.total}
+                                                        value={moveQty}
+                                                        onChange={(e) => setMoveQty(Number(e.target.value))}
+                                                        className="w-16 nb-border rounded-lg px-2 py-1 text-sm"
+                                                        style={{ background: 'var(--surface)' }}
+                                                    />
+                                                    <input
+                                                        type="date"
+                                                        value={moveDate}
+                                                        max={toLocalDateString(today)}
+                                                        onChange={(e) => setMoveDate(e.target.value)}
+                                                        className="flex-1 nb-border rounded-lg px-2 py-1 text-sm"
+                                                        style={{ background: 'var(--surface)' }}
+                                                    />
+                                                </div>
+                                                {moveError && (
+                                                    <p className="text-xs font-semibold" style={{ color: '#c0392b' }}>
+                                                        {moveError}
+                                                    </p>
+                                                )}
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={cancelEdit}
+                                                        className="flex-1 nb-border rounded-lg py-1 text-xs font-black uppercase"
+                                                        style={{ background: 'var(--surface)' }}
+                                                    >
+                                                        Cancelar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => confirmMove(row)}
+                                                        disabled={moving}
+                                                        className="flex-1 nb-border rounded-lg py-1 text-xs font-black uppercase text-white"
+                                                        style={{ background: 'var(--accent)' }}
+                                                    >
+                                                        {moving ? 'Moviendo…' : 'Mover'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </li>
+                                );
+                            })}
                         </ul>
                     )}
                 </div>

@@ -24,4 +24,6 @@ export const api = {
     updateItem: (id, delta, date) => request(`/items/${id}`, { method: 'PATCH', body: JSON.stringify({ delta, date }) }),
     deleteItem: (id) => request(`/items/${id}`, { method: 'DELETE' }),
     getHistory: () => request('/items/history'),
+    getPace: (date) => request(`/items/pace?date=${date}`),
+    moveHistory: (payload) => request('/items/history/move', { method: 'POST', body: JSON.stringify(payload) }),
 };
