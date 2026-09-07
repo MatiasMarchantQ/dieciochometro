@@ -68,17 +68,20 @@ router.patch('/:id', async (req, res) => {
             args: [req.userId, id, item.emoji, item.name, appliedDelta, occurredOn],
         });
     } else if (appliedDelta < 0) {
-        // Descontar de los días más recientes hacia atrás (LIFO) en vez de
-        // anotar siempre el retroceso en la fecha de hoy: así "bajar a 0" no
-        // deja un número negativo tapando lo que sumes hoy después.
+        // Descontar de los días más recientes hacia atrás (LIFO), empezando
+        // en la fecha indicada (hoy por defecto) y sin tocar días futuros:
+        // así "bajar a 0" no deja un número negativo tapando lo que sumes
+        // después, y un ajuste hecho desde un día puntual del calendario
+        // no termina descontando de otro día distinto al que se editó.
         let remaining = -appliedDelta;
+        const effectiveDate = occurredOn || new Date().toISOString().slice(0, 10);
         const { rows: dayRows } = await db.execute({
             sql: `SELECT occurred_on, SUM(delta) AS total FROM item_logs
-                  WHERE user_id = ? AND item_id = ?
+                  WHERE user_id = ? AND item_id = ? AND occurred_on <= ?
                   GROUP BY occurred_on
                   HAVING SUM(delta) > 0
                   ORDER BY occurred_on DESC`,
-            args: [req.userId, id],
+            args: [req.userId, id, effectiveDate],
         });
 
         const writes = [];

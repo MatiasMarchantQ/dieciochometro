@@ -21,15 +21,18 @@ export default function Calendar() {
     const today = useMemo(() => new Date(), []);
     const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
     const [history, setHistory] = useState([]);
+    const [items, setItems] = useState([]);
     const [selectedDay, setSelectedDay] = useState(toLocalDateString(today));
     const [editingKey, setEditingKey] = useState(null);
     const [moveQty, setMoveQty] = useState(1);
     const [moveDate, setMoveDate] = useState('');
     const [moveError, setMoveError] = useState('');
     const [moving, setMoving] = useState(false);
+    const [adjusting, setAdjusting] = useState(null);
 
     useEffect(() => {
         api.getHistory().then(setHistory).catch(() => {});
+        api.listItems().then(setItems).catch(() => {});
     }, []);
 
     function startEdit(row) {
@@ -59,6 +62,19 @@ export default function Calendar() {
             setMoveError(err.message);
         } finally {
             setMoving(false);
+        }
+    }
+
+    async function adjustDay(row, delta) {
+        if (!row.id || adjusting) return;
+        setAdjusting(`${row.id}:${delta}`);
+        try {
+            await api.updateItem(row.id, delta, selectedDay);
+            setHistory(await api.getHistory());
+        } catch {
+            // ignora: el conteo del día vuelve a su valor real al refrescar
+        } finally {
+            setAdjusting(null);
         }
     }
 
@@ -92,6 +108,21 @@ export default function Calendar() {
         day: 'numeric',
         month: 'long',
     });
+    const isFutureDay = selectedDay > toLocalDateString(today);
+
+    // Todos tus items para este día (con 0 si aún no registras nada), más
+    // cualquier registro huérfano (de un item ya eliminado) que igual quieras ver.
+    const dayRows = useMemo(() => {
+        const known = items.map((item) => {
+            const match = selectedRows.find((r) => r.emoji === item.emoji && r.name === item.name);
+            return { id: item.id, emoji: item.emoji, name: item.name, total: match ? match.total : 0 };
+        });
+        const knownKeys = new Set(items.map((i) => `${i.emoji}|${i.name}`));
+        const orphaned = selectedRows
+            .filter((r) => !knownKeys.has(`${r.emoji}|${r.name}`))
+            .map((r) => ({ id: null, ...r }));
+        return [...known, ...orphaned];
+    }, [items, selectedRows]);
 
     function changeMonth(delta) {
         setCursor((prev) => {
@@ -180,15 +211,16 @@ export default function Calendar() {
 
                 <div className="nb-border nb-shadow rounded-xl p-4" style={{ background: 'var(--surface)' }}>
                     <h2 className="font-display font-black uppercase mb-3 capitalize">{selectedLabel}</h2>
-                    {selectedRows.length === 0 ? (
+                    {dayRows.length === 0 ? (
                         <p className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>
                             Sin registros este día.
                         </p>
                     ) : (
                         <ul className="flex flex-col gap-2">
-                            {selectedRows.map((row) => {
+                            {dayRows.map((row) => {
                                 const key = `${row.emoji}|${row.name}`;
                                 const isEditing = editingKey === key;
+                                const canAdjust = row.id != null && !isFutureDay;
                                 return (
                                     <li key={key} className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between text-sm font-semibold">
@@ -196,15 +228,39 @@ export default function Calendar() {
                                                 {row.emoji} {row.name}
                                             </span>
                                             <div className="flex items-center gap-2">
-                                                <span className="font-black">{row.total}</span>
-                                                <button
-                                                    onClick={() => (isEditing ? cancelEdit() : startEdit(row))}
-                                                    title="¿Fue en otro día?"
-                                                    className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs"
-                                                    style={{ background: 'var(--bg-app)' }}
-                                                >
-                                                    ✏️
-                                                </button>
+                                                {canAdjust && (
+                                                    <button
+                                                        onClick={() => adjustDay(row, -1)}
+                                                        disabled={row.total === 0 || !!adjusting}
+                                                        title={`Quitar 1 ${row.name} este día`}
+                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs disabled:opacity-30"
+                                                        style={{ background: 'var(--bg-app)' }}
+                                                    >
+                                                        −
+                                                    </button>
+                                                )}
+                                                <span className="font-black w-4 text-center">{row.total}</span>
+                                                {canAdjust && (
+                                                    <button
+                                                        onClick={() => adjustDay(row, 1)}
+                                                        disabled={!!adjusting}
+                                                        title={`Sumar 1 ${row.name} este día`}
+                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs disabled:opacity-30"
+                                                        style={{ background: 'var(--bg-app)' }}
+                                                    >
+                                                        +
+                                                    </button>
+                                                )}
+                                                {row.total > 0 && (
+                                                    <button
+                                                        onClick={() => (isEditing ? cancelEdit() : startEdit(row))}
+                                                        title="¿Fue en otro día?"
+                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs"
+                                                        style={{ background: 'var(--bg-app)' }}
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 
