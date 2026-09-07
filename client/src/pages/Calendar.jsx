@@ -28,12 +28,19 @@ export default function Calendar() {
     const [moveDate, setMoveDate] = useState('');
     const [moveError, setMoveError] = useState('');
     const [moving, setMoving] = useState(false);
-    const [adjusting, setAdjusting] = useState(null);
+    const [edits, setEdits] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
 
     useEffect(() => {
         api.getHistory().then(setHistory).catch(() => {});
         api.listItems().then(setItems).catch(() => {});
     }, []);
+
+    useEffect(() => {
+        setEdits({});
+        setSaveError('');
+    }, [selectedDay]);
 
     function startEdit(row) {
         setEditingKey(`${row.emoji}|${row.name}`);
@@ -65,17 +72,43 @@ export default function Calendar() {
         }
     }
 
-    async function adjustDay(row, delta) {
-        if (!row.id || adjusting) return;
-        setAdjusting(`${row.id}:${delta}`);
-        try {
-            await api.updateItem(row.id, delta, selectedDay);
-            setHistory(await api.getHistory());
-        } catch {
-            // ignora: el conteo del día vuelve a su valor real al refrescar
-        } finally {
-            setAdjusting(null);
-        }
+    function saveEdits() {
+        const changes = dayRows
+            .filter((row) => row.id != null && edits[row.id] !== undefined && Number(edits[row.id]) !== row.total)
+            .map((row) => ({ ...row, newQuantity: Number(edits[row.id]) }));
+        if (!changes.length) return;
+        const day = selectedDay;
+
+        // Optimista: la pantalla queda al día altiro; la red va detrás.
+        setHistory((prev) => {
+            const changedKeys = new Set(changes.map((c) => `${day}|${c.emoji}|${c.name}`));
+            const kept = prev.filter((r) => !changedKeys.has(`${r.occurred_on}|${r.emoji}|${r.name}`));
+            const added = changes
+                .filter((c) => c.newQuantity !== 0)
+                .map((c) => ({ occurred_on: day, emoji: c.emoji, name: c.name, total: c.newQuantity }));
+            return [...kept, ...added];
+        });
+        setItems((prev) =>
+            prev.map((it) => {
+                const change = changes.find((c) => c.id === it.id);
+                return change ? { ...it, count: Math.max(0, it.count + (change.newQuantity - change.total)) } : it;
+            })
+        );
+        setEdits({});
+        setSaveError('');
+        setSaving(true);
+
+        Promise.all(changes.map((c) => api.setDayQuantity(c.id, day, c.newQuantity)))
+            .then(async () => {
+                setHistory(await api.getHistory());
+                setItems(await api.listItems());
+            })
+            .catch(async (err) => {
+                setSaveError(err.message);
+                setHistory(await api.getHistory().catch(() => history));
+                setItems(await api.listItems().catch(() => items));
+            })
+            .finally(() => setSaving(false));
     }
 
     const byDay = useMemo(() => {
@@ -123,6 +156,10 @@ export default function Calendar() {
             .map((r) => ({ id: null, ...r }));
         return [...known, ...orphaned];
     }, [items, selectedRows]);
+
+    const pendingCount = dayRows.filter(
+        (row) => row.id != null && edits[row.id] !== undefined && Number(edits[row.id]) !== row.total
+    ).length;
 
     function changeMonth(delta) {
         setCursor((prev) => {
@@ -228,28 +265,25 @@ export default function Calendar() {
                                                 {row.emoji} {row.name}
                                             </span>
                                             <div className="flex items-center gap-2">
-                                                {canAdjust && (
-                                                    <button
-                                                        onClick={() => adjustDay(row, -1)}
-                                                        disabled={row.total === 0 || !!adjusting}
-                                                        title={`Quitar 1 ${row.name} este día`}
-                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs disabled:opacity-30"
-                                                        style={{ background: 'var(--bg-app)' }}
-                                                    >
-                                                        −
-                                                    </button>
-                                                )}
-                                                <span className="font-black w-4 text-center">{row.total}</span>
-                                                {canAdjust && (
-                                                    <button
-                                                        onClick={() => adjustDay(row, 1)}
-                                                        disabled={!!adjusting}
-                                                        title={`Sumar 1 ${row.name} este día`}
-                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs disabled:opacity-30"
-                                                        style={{ background: 'var(--bg-app)' }}
-                                                    >
-                                                        +
-                                                    </button>
+                                                {canAdjust ? (
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        value={edits[row.id] ?? row.total}
+                                                        onChange={(e) =>
+                                                            setEdits((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                                        }
+                                                        className="w-14 nb-border rounded-lg px-1 py-1 text-sm text-center font-black"
+                                                        style={{
+                                                            background: 'var(--bg-app)',
+                                                            outline:
+                                                                edits[row.id] !== undefined && Number(edits[row.id]) !== row.total
+                                                                    ? '2px solid var(--accent)'
+                                                                    : 'none',
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <span className="font-black w-4 text-center">{row.total}</span>
                                                 )}
                                                 {row.total > 0 && (
                                                     <button
@@ -316,6 +350,25 @@ export default function Calendar() {
                                 );
                             })}
                         </ul>
+                    )}
+
+                    {saveError && (
+                        <p className="text-xs font-semibold mt-3" style={{ color: '#c0392b' }}>
+                            {saveError}
+                        </p>
+                    )}
+
+                    {pendingCount > 0 && (
+                        <div className="mt-3 pt-3 flex flex-col gap-2" style={{ borderTop: '2px solid var(--surface-border)' }}>
+                            <button
+                                onClick={saveEdits}
+                                disabled={saving}
+                                className="w-full nb-border nb-shadow rounded-lg py-2 text-xs font-black uppercase text-white transition active:translate-x-[3px] active:translate-y-[3px] active:shadow-none"
+                                style={{ background: 'var(--accent)' }}
+                            >
+                                {saving ? 'Guardando…' : `Guardar cambios (${pendingCount})`}
+                            </button>
+                        </div>
                     )}
                 </div>
             </main>

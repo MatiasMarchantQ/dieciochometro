@@ -53,60 +53,91 @@ router.patch('/:id', async (req, res) => {
         return res.status(404).json({ error: 'Item no encontrado' });
     }
 
-    const newCount = Math.max(0, item.count + delta);
+    let cappedDelta = delta;
+    if (delta < 0) {
+        // Un día nunca puede quedar negativo: lo más que se puede restar es
+        // lo que ese día ya tiene registrado (no se toca lo de otros días).
+        const effectiveDate = occurredOn || new Date().toISOString().slice(0, 10);
+        const { rows: dayRows } = await db.execute({
+            sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?',
+            args: [req.userId, item.emoji, item.name, effectiveDate],
+        });
+        cappedDelta = Math.max(delta, -dayRows[0].total);
+    }
+
+    const newCount = Math.max(0, item.count + cappedDelta);
     const appliedDelta = newCount - item.count;
+
+    if (appliedDelta !== 0) {
+        await db.batch(
+            [
+                {
+                    sql: 'UPDATE items SET count = ? WHERE id = ? AND user_id = ?',
+                    args: [newCount, id, req.userId],
+                },
+                {
+                    sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
+                          VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
+                    args: [req.userId, id, item.emoji, item.name, appliedDelta, occurredOn],
+                },
+            ],
+            'write'
+        );
+    }
+
+    res.json({ id, count: newCount });
+});
+
+router.put('/:id/day', async (req, res) => {
+    const id = Number(req.params.id);
+    const date = String(req.body.date || '').trim();
+    const quantity = Math.trunc(Number(req.body.quantity));
+
+    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(quantity) || quantity < 0) {
+        return res.status(422).json({ error: 'Datos inválidos' });
+    }
+
+    const { rows: itemRows } = await db.execute({
+        sql: 'SELECT emoji, name, count FROM items WHERE id = ? AND user_id = ?',
+        args: [id, req.userId],
+    });
+    const item = itemRows[0];
+    if (!item) {
+        return res.status(404).json({ error: 'Item no encontrado' });
+    }
+
+    // Se lee la suma real de ese día (sin el filtro "> 0" que usa el
+    // historial, y agrupando por emoji+nombre igual que el resto de los
+    // endpoints) para que el ajuste quede bien incluso si el día estaba
+    // "escondido" por arrastrar un número negativo de antes.
+    const { rows: sumRows } = await db.execute({
+        sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?',
+        args: [req.userId, item.emoji, item.name, date],
+    });
+    const currentDayTotal = sumRows[0].total;
+    const rawDelta = quantity - currentDayTotal;
+
+    if (rawDelta === 0) {
+        return res.json({ id, count: item.count, dayTotal: quantity });
+    }
+
+    const newCount = Math.max(0, item.count + rawDelta);
+    const appliedDelta = newCount - item.count;
+
+    if (appliedDelta === 0) {
+        return res.json({ id, count: item.count, dayTotal: currentDayTotal });
+    }
 
     await db.execute({
         sql: 'UPDATE items SET count = ? WHERE id = ? AND user_id = ?',
         args: [newCount, id, req.userId],
     });
+    await db.execute({
+        sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [req.userId, id, item.emoji, item.name, appliedDelta, date],
+    });
 
-    if (appliedDelta > 0) {
-        await db.execute({
-            sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
-                  VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
-            args: [req.userId, id, item.emoji, item.name, appliedDelta, occurredOn],
-        });
-    } else if (appliedDelta < 0) {
-        // Descontar de los días más recientes hacia atrás (LIFO), empezando
-        // en la fecha indicada (hoy por defecto) y sin tocar días futuros:
-        // así "bajar a 0" no deja un número negativo tapando lo que sumes
-        // después, y un ajuste hecho desde un día puntual del calendario
-        // no termina descontando de otro día distinto al que se editó.
-        let remaining = -appliedDelta;
-        const effectiveDate = occurredOn || new Date().toISOString().slice(0, 10);
-        const { rows: dayRows } = await db.execute({
-            sql: `SELECT occurred_on, SUM(delta) AS total FROM item_logs
-                  WHERE user_id = ? AND item_id = ? AND occurred_on <= ?
-                  GROUP BY occurred_on
-                  HAVING SUM(delta) > 0
-                  ORDER BY occurred_on DESC`,
-            args: [req.userId, id, effectiveDate],
-        });
-
-        const writes = [];
-        for (const day of dayRows) {
-            if (remaining <= 0) break;
-            const take = Math.min(remaining, day.total);
-            writes.push({
-                sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
-                args: [req.userId, id, item.emoji, item.name, -take, day.occurred_on],
-            });
-            remaining -= take;
-        }
-        if (remaining > 0) {
-            writes.push({
-                sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
-                      VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
-                args: [req.userId, id, item.emoji, item.name, -remaining, occurredOn],
-            });
-        }
-        if (writes.length) {
-            await db.batch(writes, 'write');
-        }
-    }
-
-    res.json({ id, count: newCount });
+    res.json({ id, count: newCount, dayTotal: currentDayTotal + appliedDelta });
 });
 
 router.get('/history', async (req, res) => {
@@ -169,15 +200,21 @@ router.post('/history/move', async (req, res) => {
         return res.status(422).json({ error: `Solo tienes ${available} registrado ese día.` });
     }
 
+    const { rows: itemMatch } = await db.execute({
+        sql: 'SELECT id FROM items WHERE user_id = ? AND emoji = ? AND name = ?',
+        args: [req.userId, emoji, name],
+    });
+    const itemId = itemMatch[0]?.id ?? null;
+
     await db.batch(
         [
             {
-                sql: 'INSERT INTO item_logs (user_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?)',
-                args: [req.userId, emoji, name, -quantity, fromDate],
+                sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [req.userId, itemId, emoji, name, -quantity, fromDate],
             },
             {
-                sql: 'INSERT INTO item_logs (user_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?)',
-                args: [req.userId, emoji, name, quantity, toDate],
+                sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [req.userId, itemId, emoji, name, quantity, toDate],
             },
         ],
         'write'
