@@ -31,6 +31,7 @@ export default function Calendar() {
     const [edits, setEdits] = useState({});
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
+    const [deletingKey, setDeletingKey] = useState(null);
 
     useEffect(() => {
         api.getHistory().then(setHistory).catch(() => {});
@@ -69,6 +70,34 @@ export default function Calendar() {
             setMoveError(err.message);
         } finally {
             setMoving(false);
+        }
+    }
+
+    async function deleteRow(row) {
+        const key = `${row.emoji}|${row.name}`;
+        const rowKey = row.id != null ? `item-${row.id}` : `orphan-${key}`;
+        if (!confirm(`¿Eliminar el registro de ${row.emoji} ${row.name} de este día?`)) return;
+        setSaveError('');
+        setDeletingKey(rowKey);
+        try {
+            if (row.id != null) {
+                await api.setDayQuantity(row.id, selectedDay, 0);
+            } else {
+                await api.deleteOrphanEntry(row.emoji, row.name, selectedDay);
+            }
+            setHistory(await api.getHistory());
+            setItems(await api.listItems());
+            if (editingKey === key) setEditingKey(null);
+            setEdits((prev) => {
+                if (row.id == null || prev[row.id] === undefined) return prev;
+                const next = { ...prev };
+                delete next[row.id];
+                return next;
+            });
+        } catch (err) {
+            setSaveError(err.message);
+        } finally {
+            setDeletingKey(null);
         }
     }
 
@@ -145,15 +174,14 @@ export default function Calendar() {
 
     // Todos tus items para este día (con 0 si aún no registras nada), más
     // cualquier registro huérfano (de un item ya eliminado) que igual quieras ver.
+    // Se hace match por item_id, no por emoji+nombre: si borraste un item y
+    // creaste otro con el mismo emoji+nombre, sus registros no deben mezclarse.
     const dayRows = useMemo(() => {
         const known = items.map((item) => {
-            const match = selectedRows.find((r) => r.emoji === item.emoji && r.name === item.name);
+            const match = selectedRows.find((r) => r.item_id === item.id);
             return { id: item.id, emoji: item.emoji, name: item.name, total: match ? match.total : 0 };
         });
-        const knownKeys = new Set(items.map((i) => `${i.emoji}|${i.name}`));
-        const orphaned = selectedRows
-            .filter((r) => !knownKeys.has(`${r.emoji}|${r.name}`))
-            .map((r) => ({ id: null, ...r }));
+        const orphaned = selectedRows.filter((r) => r.item_id == null).map((r) => ({ id: null, ...r }));
         return [...known, ...orphaned];
     }, [items, selectedRows]);
 
@@ -256,10 +284,11 @@ export default function Calendar() {
                         <ul className="flex flex-col gap-2">
                             {dayRows.map((row) => {
                                 const key = `${row.emoji}|${row.name}`;
+                                const rowKey = row.id != null ? `item-${row.id}` : `orphan-${key}`;
                                 const isEditing = editingKey === key;
                                 const canAdjust = row.id != null && !isFutureDay;
                                 return (
-                                    <li key={key} className="flex flex-col gap-2">
+                                    <li key={rowKey} className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between text-sm font-semibold">
                                             <span>
                                                 {row.emoji} {row.name}
@@ -293,6 +322,17 @@ export default function Calendar() {
                                                         style={{ background: 'var(--bg-app)' }}
                                                     >
                                                         ✏️
+                                                    </button>
+                                                )}
+                                                {row.total > 0 && (
+                                                    <button
+                                                        onClick={() => deleteRow(row)}
+                                                        disabled={deletingKey === rowKey || saving}
+                                                        title="Eliminar registro de este día"
+                                                        className="w-6 h-6 flex items-center justify-center nb-border rounded-full text-xs disabled:opacity-50"
+                                                        style={{ background: 'var(--bg-app)' }}
+                                                    >
+                                                        🗑️
                                                     </button>
                                                 )}
                                             </div>

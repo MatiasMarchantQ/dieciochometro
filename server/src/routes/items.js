@@ -57,10 +57,13 @@ router.patch('/:id', async (req, res) => {
     if (delta < 0) {
         // Un día nunca puede quedar negativo: lo más que se puede restar es
         // lo que ese día ya tiene registrado (no se toca lo de otros días).
+        // Se filtra por item_id (no por emoji+nombre) para no mezclar
+        // registros huérfanos de un item eliminado que compartía el mismo
+        // emoji+nombre: eso es lo que desincuadraba Inicio vs Calendario.
         const effectiveDate = occurredOn || new Date().toISOString().slice(0, 10);
         const { rows: dayRows } = await db.execute({
-            sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?',
-            args: [req.userId, item.emoji, item.name, effectiveDate],
+            sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND item_id = ? AND occurred_on = ?',
+            args: [req.userId, id, effectiveDate],
         });
         cappedDelta = Math.max(delta, -dayRows[0].total);
     }
@@ -107,12 +110,12 @@ router.put('/:id/day', async (req, res) => {
     }
 
     // Se lee la suma real de ese día (sin el filtro "> 0" que usa el
-    // historial, y agrupando por emoji+nombre igual que el resto de los
-    // endpoints) para que el ajuste quede bien incluso si el día estaba
-    // "escondido" por arrastrar un número negativo de antes.
+    // historial), filtrando por item_id y no por emoji+nombre: así no se
+    // mezcla con registros huérfanos de un item eliminado que compartía el
+    // mismo emoji+nombre, que era lo que impedía cuadrar el día en 0.
     const { rows: sumRows } = await db.execute({
-        sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?',
-        args: [req.userId, item.emoji, item.name, date],
+        sql: 'SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs WHERE user_id = ? AND item_id = ? AND occurred_on = ?',
+        args: [req.userId, id, date],
     });
     const currentDayTotal = sumRows[0].total;
     const rawDelta = quantity - currentDayTotal;
@@ -141,11 +144,15 @@ router.put('/:id/day', async (req, res) => {
 });
 
 router.get('/history', async (req, res) => {
+    // Se agrupa también por item_id: si un item se borró y se creó otro con
+    // el mismo emoji+nombre, sus registros no deben mezclarse (SQLite trata
+    // los item_id NULL como iguales entre sí, así que los huérfanos sí se
+    // agrupan entre ellos por emoji+nombre, que es lo que se quiere).
     const { rows } = await db.execute({
-        sql: `SELECT occurred_on, emoji, name, SUM(delta) AS total
+        sql: `SELECT occurred_on, item_id, emoji, name, SUM(delta) AS total
               FROM item_logs
               WHERE user_id = ?
-              GROUP BY occurred_on, emoji, name
+              GROUP BY occurred_on, item_id, emoji, name
               HAVING SUM(delta) > 0
               ORDER BY occurred_on DESC, total DESC`,
         args: [req.userId],
@@ -190,21 +197,32 @@ router.post('/history/move', async (req, res) => {
         return res.status(422).json({ error: 'Datos inválidos' });
     }
 
-    const { rows } = await db.execute({
-        sql: `SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs
-              WHERE user_id = ? AND emoji = ? AND name = ? AND occurred_on = ?`,
-        args: [req.userId, emoji, name, fromDate],
-    });
-    const available = rows[0].total;
-    if (quantity > available) {
-        return res.status(422).json({ error: `Solo tienes ${available} registrado ese día.` });
-    }
-
     const { rows: itemMatch } = await db.execute({
         sql: 'SELECT id FROM items WHERE user_id = ? AND emoji = ? AND name = ?',
         args: [req.userId, emoji, name],
     });
     const itemId = itemMatch[0]?.id ?? null;
+
+    // Igual que en los otros endpoints: se filtra por item_id (o, si es un
+    // registro huérfano, por item_id IS NULL) para no mezclar con logs de
+    // otro item que comparta emoji+nombre.
+    const { rows } = await db.execute(
+        itemId != null
+            ? {
+                  sql: `SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs
+                        WHERE user_id = ? AND item_id = ? AND occurred_on = ?`,
+                  args: [req.userId, itemId, fromDate],
+              }
+            : {
+                  sql: `SELECT COALESCE(SUM(delta), 0) AS total FROM item_logs
+                        WHERE user_id = ? AND item_id IS NULL AND emoji = ? AND name = ? AND occurred_on = ?`,
+                  args: [req.userId, emoji, name, fromDate],
+              }
+    );
+    const available = rows[0].total;
+    if (quantity > available) {
+        return res.status(422).json({ error: `Solo tienes ${available} registrado ese día.` });
+    }
 
     await db.batch(
         [
@@ -219,6 +237,25 @@ router.post('/history/move', async (req, res) => {
         ],
         'write'
     );
+
+    res.json({ ok: true });
+});
+
+router.delete('/history/orphan', async (req, res) => {
+    const emoji = String(req.body.emoji || '').trim();
+    const name = String(req.body.name || '').trim();
+    const date = String(req.body.date || '').trim();
+
+    if (!emoji || !name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(422).json({ error: 'Datos inválidos' });
+    }
+
+    // Registros huérfanos (item_id NULL) de un item ya eliminado: no afectan
+    // el count de ningún item vivo, así que se pueden borrar directamente.
+    await db.execute({
+        sql: 'DELETE FROM item_logs WHERE user_id = ? AND item_id IS NULL AND emoji = ? AND name = ? AND occurred_on = ?',
+        args: [req.userId, emoji, name, date],
+    });
 
     res.json({ ok: true });
 });

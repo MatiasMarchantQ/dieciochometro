@@ -27,4 +27,6 @@ export const api = {
     getHistory: () => request('/items/history'),
     getPace: (date) => request(`/items/pace?date=${date}`),
     moveHistory: (payload) => request('/items/history/move', { method: 'POST', body: JSON.stringify(payload) }),
+    deleteOrphanEntry: (emoji, name, date) =>
+        request('/items/history/orphan', { method: 'DELETE', body: JSON.stringify({ emoji, name, date }) }),
 };
