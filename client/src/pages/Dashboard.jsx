@@ -133,7 +133,7 @@ export default function Dashboard() {
                             Hola, {user.displayName}
                         </p>
                     </div>
-                    <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
                         <button
                             onClick={() => setShowNotice(true)}
                             title="Ver novedades"

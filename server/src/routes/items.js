@@ -61,12 +61,46 @@ router.patch('/:id', async (req, res) => {
         args: [newCount, id, req.userId],
     });
 
-    if (appliedDelta !== 0) {
+    if (appliedDelta > 0) {
         await db.execute({
             sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
                   VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
             args: [req.userId, id, item.emoji, item.name, appliedDelta, occurredOn],
         });
+    } else if (appliedDelta < 0) {
+        // Descontar de los días más recientes hacia atrás (LIFO) en vez de
+        // anotar siempre el retroceso en la fecha de hoy: así "bajar a 0" no
+        // deja un número negativo tapando lo que sumes hoy después.
+        let remaining = -appliedDelta;
+        const { rows: dayRows } = await db.execute({
+            sql: `SELECT occurred_on, SUM(delta) AS total FROM item_logs
+                  WHERE user_id = ? AND item_id = ?
+                  GROUP BY occurred_on
+                  HAVING SUM(delta) > 0
+                  ORDER BY occurred_on DESC`,
+            args: [req.userId, id],
+        });
+
+        const writes = [];
+        for (const day of dayRows) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, day.total);
+            writes.push({
+                sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [req.userId, id, item.emoji, item.name, -take, day.occurred_on],
+            });
+            remaining -= take;
+        }
+        if (remaining > 0) {
+            writes.push({
+                sql: `INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on)
+                      VALUES (?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), date('now')))`,
+                args: [req.userId, id, item.emoji, item.name, -remaining, occurredOn],
+            });
+        }
+        if (writes.length) {
+            await db.batch(writes, 'write');
+        }
     }
 
     res.json({ id, count: newCount });
