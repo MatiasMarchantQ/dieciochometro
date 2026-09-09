@@ -6,11 +6,42 @@ const router = Router();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {
+    // El count guardado en items es una caché del historial real
+    // (SUM(item_logs.delta)); si alguna vez se desincroniza (p.ej. un fallo
+    // de red a mitad de una escritura vieja no atómica), no había forma de
+    // corregirlo desde el Calendario: borrar un día solo descuenta lo
+    // registrado ese día, nunca el "sobrante fantasma". Por eso acá se
+    // recalcula desde la fuente de verdad y se autocorrige si no calzan.
     const { rows } = await db.execute({
-        sql: 'SELECT id, emoji, name, count FROM items WHERE user_id = ? ORDER BY sort_order, id',
+        sql: `SELECT i.id, i.emoji, i.name, i.count AS cached_count,
+                     COALESCE(SUM(l.delta), 0) AS real_count
+              FROM items i
+              LEFT JOIN item_logs l ON l.item_id = i.id
+              WHERE i.user_id = ?
+              GROUP BY i.id
+              ORDER BY i.sort_order, i.id`,
         args: [req.userId],
     });
-    res.json(rows);
+
+    const items = rows.map((r) => ({
+        id: r.id,
+        emoji: r.emoji,
+        name: r.name,
+        count: Math.max(0, r.real_count),
+    }));
+
+    const fixes = rows.filter((r) => Math.max(0, r.real_count) !== r.cached_count);
+    if (fixes.length) {
+        await db.batch(
+            fixes.map((r) => ({
+                sql: 'UPDATE items SET count = ? WHERE id = ?',
+                args: [Math.max(0, r.real_count), r.id],
+            })),
+            'write'
+        );
+    }
+
+    res.json(items);
 });
 
 router.post('/', async (req, res) => {
@@ -131,14 +162,24 @@ router.put('/:id/day', async (req, res) => {
         return res.json({ id, count: item.count, dayTotal: currentDayTotal });
     }
 
-    await db.execute({
-        sql: 'UPDATE items SET count = ? WHERE id = ? AND user_id = ?',
-        args: [newCount, id, req.userId],
-    });
-    await db.execute({
-        sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [req.userId, id, item.emoji, item.name, appliedDelta, date],
-    });
+    // Atómico (igual que en los otros endpoints): si esto se partiera en dos
+    // escrituras separadas, un fallo entre medio dejaría count actualizado
+    // pero sin su log correspondiente, y ese sobrante quedaría pegado para
+    // siempre porque ninguna acción del Calendario puede tocar un sobrante
+    // que no está respaldado por ningún registro.
+    await db.batch(
+        [
+            {
+                sql: 'UPDATE items SET count = ? WHERE id = ? AND user_id = ?',
+                args: [newCount, id, req.userId],
+            },
+            {
+                sql: 'INSERT INTO item_logs (user_id, item_id, emoji, name, delta, occurred_on) VALUES (?, ?, ?, ?, ?, ?)',
+                args: [req.userId, id, item.emoji, item.name, appliedDelta, date],
+            },
+        ],
+        'write'
+    );
 
     res.json({ id, count: newCount, dayTotal: currentDayTotal + appliedDelta });
 });
