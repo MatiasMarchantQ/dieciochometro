@@ -303,7 +303,16 @@ router.delete('/history/orphan', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
     const id = Number(req.params.id);
-    await db.execute({ sql: 'DELETE FROM items WHERE id = ? AND user_id = ?', args: [id, req.userId] });
+    // Se borran también sus logs (no se dejan huérfanos vía ON DELETE SET
+    // NULL): si no, quedaban registros fantasma en el Calendario para
+    // siempre, sin ningún item vivo al que corresponder en Inicio.
+    await db.batch(
+        [
+            { sql: 'DELETE FROM item_logs WHERE item_id = ? AND user_id = ?', args: [id, req.userId] },
+            { sql: 'DELETE FROM items WHERE id = ? AND user_id = ?', args: [id, req.userId] },
+        ],
+        'write'
+    );
     res.json({ ok: true });
 });
 
